@@ -2,6 +2,53 @@
 
 All notable changes to `laravel-posthog-logs` will be documented in this file.
 
+## v1.2.0 - 2026-02-03
+
+### What's New
+
+#### Simplified Configuration
+
+The configuration has been dramatically simplified:
+
+**Before (15 options):**
+
+```php
+'batch' => ['enabled' => true, 'max_size' => 100],
+'http' => ['timeout' => 2, 'connect_timeout' => 1, 'verify_ssl' => true],
+'queue' => ['enabled' => false, 'connection' => null, 'queue' => 'posthog-logs'],
+
+```
+**After (10 options):**
+
+```php
+'batch_size' => 100,      // 0 to disable batching
+'timeout' => 2,           // connect_timeout derived automatically
+'queue' => null,          // queue name to enable, null for sync
+
+```
+#### Simplified Usage
+
+```bash
+# Sync mode (default) - just set your API key
+POSTHOG_API_KEY=phc_xxx
+
+# Queue mode - add queue name
+POSTHOG_QUEUE=posthog-logs
+
+```
+#### Changes
+
+- **Config**: Reduced from 15 options to 10
+- **Handler constructor**: Reduced from 17 parameters to 10
+- **Job constructor**: Reduced from 6 parameters to 4
+- Connect timeout is now derived from timeout (timeout / 2)
+- SSL verification is always enabled (security best practice)
+- Removed `queue.connection` option (uses default Laravel connection)
+
+#### Full Changelog
+
+https://github.com/robbiekibler/laravel-posthog-logs/compare/v1.1.0...v1.2.0
+
 ## v1.0.0 - 2026-02-03
 
 ### Initial Stable Release
@@ -22,6 +69,7 @@ Send your Laravel application logs to PostHog using the OpenTelemetry OTLP forma
 
 ```bash
 composer require robbiekibler/laravel-posthog-logs
+
 
 ```
 ## v1.1.0 - 2026-02-03
@@ -45,11 +93,13 @@ composer require robbiekibler/laravel-posthog-logs
 composer require robbiekibler/laravel-posthog-logs
 
 
+
 ```
 ### Testing Your Setup
 
 ```bash
 php artisan posthog:test
+
 
 
 ```
