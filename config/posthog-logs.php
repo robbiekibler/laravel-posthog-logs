@@ -27,11 +27,18 @@ return [
         // 'custom.attribute' => 'value',
     ],
 
-    // HTTP client settings
+    // HTTP client settings (reduced defaults for faster fail in sync mode)
     'http' => [
-        'timeout' => env('POSTHOG_HTTP_TIMEOUT', 5),
-        'connect_timeout' => env('POSTHOG_HTTP_CONNECT_TIMEOUT', 2),
+        'timeout' => env('POSTHOG_HTTP_TIMEOUT', 2),
+        'connect_timeout' => env('POSTHOG_HTTP_CONNECT_TIMEOUT', 1),
         'verify_ssl' => env('POSTHOG_HTTP_VERIFY_SSL', true),
+    ],
+
+    // Optional queue-based delivery for non-blocking log sending
+    'queue' => [
+        'enabled' => env('POSTHOG_QUEUE_ENABLED', false),
+        'connection' => env('POSTHOG_QUEUE_CONNECTION'),
+        'queue' => env('POSTHOG_QUEUE_NAME', 'posthog-logs'),
     ],
 
     // Set to false to disable sending logs (useful for local development)

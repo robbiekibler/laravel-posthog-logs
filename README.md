@@ -73,6 +73,20 @@ To customize all options, publish the config file:
 php artisan vendor:publish --tag="posthog-logs-config"
 ```
 
+## Testing Your Configuration
+
+Verify your setup is working by running the test command:
+
+```bash
+php artisan posthog:test
+```
+
+This will display your current configuration and send a test log entry to PostHog. You can customize the test message:
+
+```bash
+php artisan posthog:test --message="Hello from my app!"
+```
+
 ## Usage
 
 Once configured, use Laravel's standard logging:

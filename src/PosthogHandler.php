@@ -9,14 +9,13 @@ use InvalidArgumentException;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
+use RobbieKibler\PosthogLogs\Jobs\SendPosthogLogsJob;
 
 class PosthogHandler extends AbstractProcessingHandler
 {
     private const PACKAGE_NAME = 'robbiekibler/laravel-posthog-logs';
 
     private const FALLBACK_VERSION = '1.0.0';
-
-    private const MAX_RETRY_ATTEMPTS = 2;
 
     private const BATCH_OVERFLOW_MULTIPLIER = 2;
 
@@ -68,11 +67,14 @@ class PosthogHandler extends AbstractProcessingHandler
         protected int $batchMaxSize = 100,
         /** @var array<string, mixed> */
         protected array $resourceAttributes = [],
-        protected int $httpTimeout = 5,
-        protected int $httpConnectTimeout = 2,
+        protected int $httpTimeout = 2,
+        protected int $httpConnectTimeout = 1,
         protected bool $verifySsl = true,
         protected bool $enabled = true,
         bool $bubble = true,
+        protected bool $useQueue = false,
+        protected ?string $queueConnection = null,
+        protected ?string $queueName = null,
     ) {
         parent::__construct($level, $bubble);
 
@@ -225,13 +227,13 @@ class PosthogHandler extends AbstractProcessingHandler
     {
         $result = json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE);
 
-        if ($result === false) {
-            return is_object($value)
-                ? sprintf('[object %s]', get_class($value))
-                : '[encoding failed]';
+        if ($result !== false) {
+            return $result;
         }
 
-        return $result;
+        return is_object($value)
+            ? sprintf('[object %s]', get_class($value))
+            : '[encoding failed]';
     }
 
     /**
@@ -274,14 +276,11 @@ class PosthogHandler extends AbstractProcessingHandler
 
     /**
      * @param  array<int, array<string, mixed>>  $logRecords
+     * @return array<string, mixed>
      */
-    protected function send(array $logRecords): void
+    protected function buildPayload(array $logRecords): array
     {
-        if (empty($logRecords)) {
-            return;
-        }
-
-        $payload = [
+        return [
             'resourceLogs' => [
                 [
                     'resource' => [
@@ -299,45 +298,71 @@ class PosthogHandler extends AbstractProcessingHandler
                 ],
             ],
         ];
+    }
 
-        $lastException = null;
-
-        for ($attempt = 1; $attempt <= self::MAX_RETRY_ATTEMPTS; $attempt++) {
-            try {
-                $this->client->post($this->endpoint, [
-                    'json' => $payload,
-                    'headers' => [
-                        'Content-Type' => 'application/json',
-                        'Authorization' => "Bearer {$this->apiKey}",
-                    ],
-                ]);
-
-                return; // Success, exit the retry loop
-            } catch (GuzzleException $e) {
-                $lastException = $e;
-
-                // Don't retry on client errors (4xx) except 429 (rate limit)
-                if ($e->getCode() >= 400 && $e->getCode() < 500 && $e->getCode() !== 429) {
-                    break;
-                }
-
-                // Wait before retry with exponential backoff
-                if ($attempt < self::MAX_RETRY_ATTEMPTS) {
-                    usleep($attempt * 100_000); // 100ms, 200ms
-                }
-            }
+    /**
+     * @param  array<int, array<string, mixed>>  $logRecords
+     */
+    protected function send(array $logRecords): void
+    {
+        if (empty($logRecords)) {
+            return;
         }
 
-        // Log failure to PHP's error log to avoid infinite loops
-        // $lastException is guaranteed to be set here since we only reach
-        // this point if we broke out of the loop or exhausted retries
-        /** @var GuzzleException $lastException */
-        $this->logError(sprintf(
-            'Failed to send %d log(s) after %d attempts: %s',
-            count($logRecords),
-            self::MAX_RETRY_ATTEMPTS,
-            $lastException->getMessage()
-        ));
+        $payload = $this->buildPayload($logRecords);
+
+        $this->useQueue
+            ? $this->dispatchToQueue($payload)
+            : $this->sendSync($payload);
+    }
+
+    /**
+     * Send logs synchronously with a single attempt (no retries).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    protected function sendSync(array $payload): void
+    {
+        try {
+            $this->client->post($this->endpoint, [
+                'json' => $payload,
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Authorization' => "Bearer {$this->apiKey}",
+                ],
+            ]);
+        } catch (GuzzleException $e) {
+            // Log and swallow - never impact the application
+            $this->logError("Failed to send logs: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Dispatch logs to the queue for async delivery.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    protected function dispatchToQueue(array $payload): void
+    {
+        try {
+            $job = new SendPosthogLogsJob(
+                endpoint: $this->endpoint,
+                apiKey: $this->apiKey ?? '',
+                payload: $payload,
+                httpTimeout: $this->httpTimeout,
+                httpConnectTimeout: $this->httpConnectTimeout,
+                verifySsl: $this->verifySsl,
+            );
+
+            if ($this->queueConnection !== null) {
+                $job = $job->onConnection($this->queueConnection);
+            }
+
+            dispatch($job->onQueue($this->queueName));
+        } catch (\Throwable $e) {
+            $this->logError("Queue dispatch failed, sending sync: {$e->getMessage()}");
+            $this->sendSync($payload);
+        }
     }
 
     protected function logError(string $message): void

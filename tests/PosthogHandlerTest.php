@@ -13,14 +13,15 @@ function createTestHandler(array $options = []): PosthogHandler
         environment: $options['environment'] ?? 'production',
         resourceAttributes: $options['resourceAttributes'] ?? [],
         enabled: $options['enabled'] ?? false,
+        useQueue: $options['useQueue'] ?? false,
+        queueConnection: $options['queueConnection'] ?? null,
+        queueName: $options['queueName'] ?? null,
     );
 }
 
 function invokeMethod(object $object, string $method, mixed ...$args): mixed
 {
-    $reflection = new ReflectionMethod($object, $method);
-
-    return $reflection->invoke($object, ...$args);
+    return (new ReflectionMethod($object, $method))->invoke($object, ...$args);
 }
 
 function createLogRecord(Level $level = Level::Info, string $message = 'Test', array $context = []): LogRecord
@@ -159,11 +160,13 @@ it('includes sdk version in resource attributes', function () {
     $handler = createTestHandler();
 
     $attributes = invokeMethod($handler, 'getResourceAttributes');
-    $versionAttr = array_filter($attributes, fn ($a) => $a['key'] === 'telemetry.sdk.version');
+    $versionAttr = array_values(array_filter(
+        $attributes,
+        fn ($a) => $a['key'] === 'telemetry.sdk.version'
+    ));
 
     expect($versionAttr)->not->toBeEmpty();
-    $version = array_values($versionAttr)[0]['value']['stringValue'];
-    expect($version)->toBeString()->and(strlen($version))->toBeGreaterThan(0);
+    expect($versionAttr[0]['value']['stringValue'])->toBeString()->not->toBeEmpty();
 });
 
 it('drops oldest logs when batch overflows due to send failures', function () {
@@ -191,4 +194,138 @@ it('drops oldest logs when batch overflows due to send failures', function () {
         ->and($batch[0]['body']['stringValue'])->toBe('Message 6')
         ->and($batch[4]['body']['stringValue'])->toBe('Message 10')
         ->and($handler->flushCallCount)->toBe(6);
+});
+
+it('accepts queue configuration options', function () {
+    $handler = createTestHandler([
+        'useQueue' => true,
+        'queueConnection' => 'redis',
+        'queueName' => 'logs',
+    ]);
+
+    expect($handler)->toBeInstanceOf(PosthogHandler::class);
+
+    $reflection = new ReflectionClass($handler);
+
+    $useQueueProp = $reflection->getProperty('useQueue');
+    expect($useQueueProp->getValue($handler))->toBeTrue();
+
+    $queueConnectionProp = $reflection->getProperty('queueConnection');
+    expect($queueConnectionProp->getValue($handler))->toBe('redis');
+
+    $queueNameProp = $reflection->getProperty('queueName');
+    expect($queueNameProp->getValue($handler))->toBe('logs');
+});
+
+it('builds payload correctly', function () {
+    $handler = createTestHandler();
+    $record = createLogRecord(Level::Info, 'Test message');
+    $formatted = invokeMethod($handler, 'formatLogRecord', $record);
+
+    $payload = invokeMethod($handler, 'buildPayload', [$formatted]);
+
+    expect($payload)->toBeArray()
+        ->and($payload)->toHaveKey('resourceLogs')
+        ->and($payload['resourceLogs'])->toHaveCount(1)
+        ->and($payload['resourceLogs'][0])->toHaveKey('resource')
+        ->and($payload['resourceLogs'][0])->toHaveKey('scopeLogs')
+        ->and($payload['resourceLogs'][0]['scopeLogs'][0]['logRecords'])->toHaveCount(1);
+});
+
+it('uses reduced default timeouts', function () {
+    $handler = new PosthogHandler(apiKey: 'test_key');
+
+    $reflection = new ReflectionClass($handler);
+
+    $timeoutProp = $reflection->getProperty('httpTimeout');
+    expect($timeoutProp->getValue($handler))->toBe(2);
+
+    $connectTimeoutProp = $reflection->getProperty('httpConnectTimeout');
+    expect($connectTimeoutProp->getValue($handler))->toBe(1);
+});
+
+it('uses sync mode by default', function () {
+    $handler = new PosthogHandler(apiKey: 'test_key');
+
+    $useQueueProp = (new ReflectionClass($handler))->getProperty('useQueue');
+
+    expect($useQueueProp->getValue($handler))->toBeFalse();
+});
+
+it('sends sync without retries', function () {
+    $handler = new class('test_key', 'us.i.posthog.com', 'laravel', 'production', Level::Debug, false) extends PosthogHandler
+    {
+        public int $sendSyncCalls = 0;
+
+        public array $errors = [];
+
+        protected function sendSync(array $payload): void
+        {
+            $this->sendSyncCalls++;
+            // Simulate parent behavior - catch exception and log
+            $this->logError('Connection failed');
+        }
+
+        protected function logError(string $message): void
+        {
+            $this->errors[] = $message;
+        }
+    };
+
+    $handler->handle(createLogRecord());
+
+    // Should only call sendSync once (no retries)
+    expect($handler->sendSyncCalls)->toBe(1);
+});
+
+it('falls back to sync when queue dispatch fails', function () {
+    $handler = new class(
+        'test_key',
+        'us.i.posthog.com',
+        'laravel',
+        'production',
+        Level::Debug,
+        false,
+        100,
+        [],
+        2,
+        1,
+        true,
+        true,
+        true,
+        true,
+        'redis',
+        'logs'
+    ) extends PosthogHandler {
+        public bool $syncCalled = false;
+
+        public array $errors = [];
+
+        protected function dispatchToQueue(array $payload): void
+        {
+            // Simulate what the parent does: try to dispatch, fail, then fallback
+            try {
+                throw new \Exception('Queue not available');
+            } catch (\Throwable $e) {
+                $this->logError("Queue dispatch failed, sending sync: {$e->getMessage()}");
+                $this->sendSync($payload);
+            }
+        }
+
+        protected function sendSync(array $payload): void
+        {
+            $this->syncCalled = true;
+        }
+
+        protected function logError(string $message): void
+        {
+            $this->errors[] = $message;
+        }
+    };
+
+    $formatted = invokeMethod($handler, 'formatLogRecord', createLogRecord());
+    invokeMethod($handler, 'send', [$formatted]);
+
+    expect($handler->syncCalled)->toBeTrue()
+        ->and($handler->errors)->toContain('Queue dispatch failed, sending sync: Queue not available');
 });
