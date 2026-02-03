@@ -34,9 +34,7 @@ class SendPosthogLogsJob implements ShouldQueue
         public readonly string $endpoint,
         public readonly string $apiKey,
         public readonly array $payload,
-        public readonly int $httpTimeout = 5,
-        public readonly int $httpConnectTimeout = 2,
-        public readonly bool $verifySsl = true,
+        public readonly int $timeout = 5,
     ) {}
 
     /**
@@ -45,9 +43,9 @@ class SendPosthogLogsJob implements ShouldQueue
     public function handle(): void
     {
         $client = new Client([
-            'timeout' => $this->httpTimeout,
-            'connect_timeout' => $this->httpConnectTimeout,
-            'verify' => $this->verifySsl,
+            'timeout' => $this->timeout,
+            'connect_timeout' => max(1, (int) ($this->timeout / 2)),
+            'verify' => true,
         ]);
 
         $client->post($this->endpoint, [

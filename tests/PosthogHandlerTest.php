@@ -4,18 +4,22 @@ use Monolog\Level;
 use Monolog\LogRecord;
 use RobbieKibler\PosthogLogs\PosthogHandler;
 
+const DEFAULT_API_KEY = 'test_key';
+const DEFAULT_HOST = 'us.i.posthog.com';
+const DEFAULT_SERVICE = 'laravel';
+const DEFAULT_ENV = 'production';
+
 function createTestHandler(array $options = []): PosthogHandler
 {
     return new PosthogHandler(
-        apiKey: $options['apiKey'] ?? 'test_key',
-        host: $options['host'] ?? 'us.i.posthog.com',
-        serviceName: $options['serviceName'] ?? 'laravel',
-        environment: $options['environment'] ?? 'production',
-        resourceAttributes: $options['resourceAttributes'] ?? [],
+        apiKey: $options['apiKey'] ?? DEFAULT_API_KEY,
+        host: $options['host'] ?? DEFAULT_HOST,
+        serviceName: $options['serviceName'] ?? DEFAULT_SERVICE,
+        environment: $options['environment'] ?? DEFAULT_ENV,
         enabled: $options['enabled'] ?? false,
-        useQueue: $options['useQueue'] ?? false,
-        queueConnection: $options['queueConnection'] ?? null,
-        queueName: $options['queueName'] ?? null,
+        batchSize: $options['batchSize'] ?? 100,
+        queue: $options['queue'] ?? null,
+        resourceAttributes: $options['resourceAttributes'] ?? [],
     );
 }
 
@@ -170,7 +174,7 @@ it('includes sdk version in resource attributes', function () {
 });
 
 it('drops oldest logs when batch overflows due to send failures', function () {
-    $handler = new class('test_key', 'us.i.posthog.com', 'laravel', 'production', Level::Debug, true, 5) extends PosthogHandler
+    $handler = new class(DEFAULT_API_KEY, DEFAULT_HOST, DEFAULT_SERVICE, DEFAULT_ENV, Level::Debug, true, 5) extends PosthogHandler
     {
         public int $flushCallCount = 0;
 
@@ -196,25 +200,13 @@ it('drops oldest logs when batch overflows due to send failures', function () {
         ->and($handler->flushCallCount)->toBe(6);
 });
 
-it('accepts queue configuration options', function () {
-    $handler = createTestHandler([
-        'useQueue' => true,
-        'queueConnection' => 'redis',
-        'queueName' => 'logs',
-    ]);
+it('accepts queue configuration', function () {
+    $handler = createTestHandler(['queue' => 'posthog-logs']);
 
     expect($handler)->toBeInstanceOf(PosthogHandler::class);
 
-    $reflection = new ReflectionClass($handler);
-
-    $useQueueProp = $reflection->getProperty('useQueue');
-    expect($useQueueProp->getValue($handler))->toBeTrue();
-
-    $queueConnectionProp = $reflection->getProperty('queueConnection');
-    expect($queueConnectionProp->getValue($handler))->toBe('redis');
-
-    $queueNameProp = $reflection->getProperty('queueName');
-    expect($queueNameProp->getValue($handler))->toBe('logs');
+    $queueProp = (new ReflectionClass($handler))->getProperty('queue');
+    expect($queueProp->getValue($handler))->toBe('posthog-logs');
 });
 
 it('builds payload correctly', function () {
@@ -232,28 +224,23 @@ it('builds payload correctly', function () {
         ->and($payload['resourceLogs'][0]['scopeLogs'][0]['logRecords'])->toHaveCount(1);
 });
 
-it('uses reduced default timeouts', function () {
+it('uses reduced default timeout', function () {
     $handler = new PosthogHandler(apiKey: 'test_key');
 
-    $reflection = new ReflectionClass($handler);
-
-    $timeoutProp = $reflection->getProperty('httpTimeout');
+    $timeoutProp = (new ReflectionClass($handler))->getProperty('timeout');
     expect($timeoutProp->getValue($handler))->toBe(2);
-
-    $connectTimeoutProp = $reflection->getProperty('httpConnectTimeout');
-    expect($connectTimeoutProp->getValue($handler))->toBe(1);
 });
 
 it('uses sync mode by default', function () {
     $handler = new PosthogHandler(apiKey: 'test_key');
 
-    $useQueueProp = (new ReflectionClass($handler))->getProperty('useQueue');
+    $queueProp = (new ReflectionClass($handler))->getProperty('queue');
 
-    expect($useQueueProp->getValue($handler))->toBeFalse();
+    expect($queueProp->getValue($handler))->toBeNull();
 });
 
 it('sends sync without retries', function () {
-    $handler = new class('test_key', 'us.i.posthog.com', 'laravel', 'production', Level::Debug, false) extends PosthogHandler
+    $handler = new class(DEFAULT_API_KEY, DEFAULT_HOST, DEFAULT_SERVICE, DEFAULT_ENV, Level::Debug, true, 0) extends PosthogHandler
     {
         public int $sendSyncCalls = 0;
 
@@ -262,7 +249,6 @@ it('sends sync without retries', function () {
         protected function sendSync(array $payload): void
         {
             $this->sendSyncCalls++;
-            // Simulate parent behavior - catch exception and log
             $this->logError('Connection failed');
         }
 
@@ -279,7 +265,7 @@ it('sends sync without retries', function () {
 });
 
 it('falls back to sync when queue dispatch fails', function () {
-    $handler = new class('test_key', 'us.i.posthog.com', 'laravel', 'production', Level::Debug, false, 100, [], 2, 1, true, true, true, true, 'redis', 'logs') extends PosthogHandler
+    $handler = new class(DEFAULT_API_KEY, DEFAULT_HOST, DEFAULT_SERVICE, DEFAULT_ENV, Level::Debug, true, 0, 'logs') extends PosthogHandler
     {
         public bool $syncCalled = false;
 
@@ -287,7 +273,6 @@ it('falls back to sync when queue dispatch fails', function () {
 
         protected function dispatchToQueue(array $payload): void
         {
-            // Simulate what the parent does: try to dispatch, fail, then fallback
             try {
                 throw new \Exception('Queue not available');
             } catch (\Throwable $e) {

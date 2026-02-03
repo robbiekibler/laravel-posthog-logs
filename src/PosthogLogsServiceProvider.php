@@ -20,25 +20,22 @@ class PosthogLogsServiceProvider extends PackageServiceProvider
 
     public function packageBooted(): void
     {
-        $this->app->make('log')->extend('posthog', function ($app, array $config): Logger {
+        $resolveLevel = fn (mixed $level): Level => $this->resolveLogLevel($level);
+
+        $this->app->make('log')->extend('posthog', function ($app, array $config) use ($resolveLevel): Logger {
             $get = fn (string $key, mixed $default = null): mixed => $config[$key] ?? config("posthog-logs.{$key}", $default);
 
             $handler = new PosthogHandler(
                 apiKey: $get('api_key'),
-                host: $get('host'),
-                serviceName: $get('service_name'),
-                environment: $get('environment'),
-                level: $this->resolveLogLevel($get('level')),
-                batchEnabled: $config['batch']['enabled'] ?? config('posthog-logs.batch.enabled', true),
-                batchMaxSize: $config['batch']['max_size'] ?? config('posthog-logs.batch.max_size', 100),
-                resourceAttributes: $get('resource_attributes', []),
-                httpTimeout: $config['http']['timeout'] ?? config('posthog-logs.http.timeout', 2),
-                httpConnectTimeout: $config['http']['connect_timeout'] ?? config('posthog-logs.http.connect_timeout', 1),
-                verifySsl: $config['http']['verify_ssl'] ?? config('posthog-logs.http.verify_ssl', true),
+                host: $get('host', 'us.i.posthog.com'),
+                serviceName: $get('service_name', 'laravel'),
+                environment: $get('environment', 'production'),
+                level: $resolveLevel($get('level', 'debug')),
                 enabled: $get('enabled', true),
-                useQueue: $config['queue']['enabled'] ?? config('posthog-logs.queue.enabled', false),
-                queueConnection: $config['queue']['connection'] ?? config('posthog-logs.queue.connection'),
-                queueName: $config['queue']['queue'] ?? config('posthog-logs.queue.queue', 'posthog-logs'),
+                batchSize: $get('batch_size', 100),
+                queue: $get('queue'),
+                timeout: $get('timeout', 2),
+                resourceAttributes: $get('resource_attributes', []),
             );
 
             return new Logger('posthog', [$handler]);

@@ -16,31 +16,20 @@ return [
     // Minimum log level: debug, info, notice, warning, error, critical, alert, emergency
     'level' => env('POSTHOG_LOG_LEVEL', 'debug'),
 
-    // Batching reduces HTTP requests for better performance
-    'batch' => [
-        'enabled' => env('POSTHOG_BATCH_ENABLED', true),
-        'max_size' => env('POSTHOG_BATCH_MAX_SIZE', 100),
-    ],
+    // Set to false to disable sending logs (useful for local development)
+    'enabled' => env('POSTHOG_LOGS_ENABLED', true),
+
+    // Batch size before sending (0 to disable batching and send immediately)
+    'batch_size' => env('POSTHOG_BATCH_SIZE', 100),
+
+    // Queue name for async delivery (null to send synchronously)
+    'queue' => env('POSTHOG_QUEUE'),
+
+    // HTTP timeout in seconds
+    'timeout' => env('POSTHOG_TIMEOUT', 2),
 
     // Custom attributes included with every log record
     'resource_attributes' => [
         // 'custom.attribute' => 'value',
     ],
-
-    // HTTP client settings (reduced defaults for faster fail in sync mode)
-    'http' => [
-        'timeout' => env('POSTHOG_HTTP_TIMEOUT', 2),
-        'connect_timeout' => env('POSTHOG_HTTP_CONNECT_TIMEOUT', 1),
-        'verify_ssl' => env('POSTHOG_HTTP_VERIFY_SSL', true),
-    ],
-
-    // Optional queue-based delivery for non-blocking log sending
-    'queue' => [
-        'enabled' => env('POSTHOG_QUEUE_ENABLED', false),
-        'connection' => env('POSTHOG_QUEUE_CONNECTION'),
-        'queue' => env('POSTHOG_QUEUE_NAME', 'posthog-logs'),
-    ],
-
-    // Set to false to disable sending logs (useful for local development)
-    'enabled' => env('POSTHOG_LOGS_ENABLED', true),
 ];

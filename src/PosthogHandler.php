@@ -63,29 +63,23 @@ class PosthogHandler extends AbstractProcessingHandler
         protected string $serviceName = 'laravel',
         protected string $environment = 'production',
         int|string|Level $level = Level::Debug,
-        protected bool $batchEnabled = true,
-        protected int $batchMaxSize = 100,
+        protected bool $enabled = true,
+        protected int $batchSize = 100,
+        protected ?string $queue = null,
+        protected int $timeout = 2,
         /** @var array<string, mixed> */
         protected array $resourceAttributes = [],
-        protected int $httpTimeout = 2,
-        protected int $httpConnectTimeout = 1,
-        protected bool $verifySsl = true,
-        protected bool $enabled = true,
-        bool $bubble = true,
-        protected bool $useQueue = false,
-        protected ?string $queueConnection = null,
-        protected ?string $queueName = null,
     ) {
-        parent::__construct($level, $bubble);
+        parent::__construct($level, true);
 
         $this->validateHost($this->host);
         $this->endpoint = "https://{$this->host}/i/v1/logs";
         $this->sdkVersion = $this->resolvePackageVersion();
 
         $this->client = new Client([
-            'timeout' => $this->httpTimeout,
-            'connect_timeout' => $this->httpConnectTimeout,
-            'verify' => $this->verifySsl,
+            'timeout' => $this->timeout,
+            'connect_timeout' => max(1, (int) ($this->timeout / 2)),
+            'verify' => true,
         ]);
     }
 
@@ -126,18 +120,18 @@ class PosthogHandler extends AbstractProcessingHandler
 
         $logRecord = $this->formatLogRecord($record);
 
-        if ($this->batchEnabled) {
+        if ($this->batchSize > 0) {
             $this->batch[] = $logRecord;
 
             // Prevent unbounded memory growth if sends are failing
-            $maxBatchSize = $this->batchMaxSize * self::BATCH_OVERFLOW_MULTIPLIER;
+            $maxBatchSize = $this->batchSize * self::BATCH_OVERFLOW_MULTIPLIER;
             if (count($this->batch) >= $maxBatchSize) {
                 // Drop oldest logs to make room
-                array_splice($this->batch, 0, $this->batchMaxSize);
+                array_splice($this->batch, 0, $this->batchSize);
                 $this->logError('Batch overflow: dropped oldest logs due to send failures');
             }
 
-            if (count($this->batch) >= $this->batchMaxSize) {
+            if (count($this->batch) >= $this->batchSize) {
                 $this->flush();
             } else {
                 $this->registerShutdown();
@@ -216,8 +210,7 @@ class PosthogHandler extends AbstractProcessingHandler
             is_bool($value) => ['boolValue' => $value],
             is_int($value) => ['intValue' => (string) $value],
             is_float($value) => ['doubleValue' => $value],
-            is_array($value) => ['stringValue' => $this->safeJsonEncode($value)],
-            is_object($value) => ['stringValue' => $this->safeJsonEncode($value)],
+            is_array($value), is_object($value) => ['stringValue' => $this->safeJsonEncode($value)],
             is_null($value) => ['stringValue' => 'null'],
             default => ['stringValue' => (string) $value],
         };
@@ -231,9 +224,7 @@ class PosthogHandler extends AbstractProcessingHandler
             return $result;
         }
 
-        return is_object($value)
-            ? sprintf('[object %s]', get_class($value))
-            : '[encoding failed]';
+        return is_object($value) ? '[object '.get_class($value).']' : '[encoding failed]';
     }
 
     /**
@@ -311,9 +302,7 @@ class PosthogHandler extends AbstractProcessingHandler
 
         $payload = $this->buildPayload($logRecords);
 
-        $this->useQueue
-            ? $this->dispatchToQueue($payload)
-            : $this->sendSync($payload);
+        $this->queue !== null ? $this->dispatchToQueue($payload) : $this->sendSync($payload);
     }
 
     /**
@@ -349,16 +338,10 @@ class PosthogHandler extends AbstractProcessingHandler
                 endpoint: $this->endpoint,
                 apiKey: $this->apiKey ?? '',
                 payload: $payload,
-                httpTimeout: $this->httpTimeout,
-                httpConnectTimeout: $this->httpConnectTimeout,
-                verifySsl: $this->verifySsl,
+                timeout: $this->timeout,
             );
 
-            if ($this->queueConnection !== null) {
-                $job = $job->onConnection($this->queueConnection);
-            }
-
-            dispatch($job->onQueue($this->queueName));
+            dispatch($job->onQueue($this->queue));
         } catch (\Throwable $e) {
             $this->logError("Queue dispatch failed, sending sync: {$e->getMessage()}");
             $this->sendSync($payload);

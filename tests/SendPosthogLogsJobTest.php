@@ -2,15 +2,18 @@
 
 use RobbieKibler\PosthogLogs\Jobs\SendPosthogLogsJob;
 
+const JOB_TEST_ENDPOINT = 'https://us.i.posthog.com/i/v1/logs';
+const JOB_TEST_API_KEY = 'test_key';
+const JOB_TEST_PAYLOAD = ['resourceLogs' => []];
+const JOB_TEST_TIMEOUT = 5;
+
 function createTestJob(array $options = []): SendPosthogLogsJob
 {
     return new SendPosthogLogsJob(
-        endpoint: $options['endpoint'] ?? 'https://us.i.posthog.com/i/v1/logs',
-        apiKey: $options['apiKey'] ?? 'test_key',
-        payload: $options['payload'] ?? ['resourceLogs' => []],
-        httpTimeout: $options['httpTimeout'] ?? 5,
-        httpConnectTimeout: $options['httpConnectTimeout'] ?? 2,
-        verifySsl: $options['verifySsl'] ?? true,
+        endpoint: $options['endpoint'] ?? JOB_TEST_ENDPOINT,
+        apiKey: $options['apiKey'] ?? JOB_TEST_API_KEY,
+        payload: $options['payload'] ?? JOB_TEST_PAYLOAD,
+        timeout: $options['timeout'] ?? JOB_TEST_TIMEOUT,
     );
 }
 
@@ -18,12 +21,10 @@ it('can be instantiated with required parameters', function () {
     $job = createTestJob();
 
     expect($job)->toBeInstanceOf(SendPosthogLogsJob::class)
-        ->and($job->endpoint)->toBe('https://us.i.posthog.com/i/v1/logs')
-        ->and($job->apiKey)->toBe('test_key')
-        ->and($job->payload)->toBe(['resourceLogs' => []])
-        ->and($job->httpTimeout)->toBe(5)
-        ->and($job->httpConnectTimeout)->toBe(2)
-        ->and($job->verifySsl)->toBeTrue();
+        ->and($job->endpoint)->toBe(JOB_TEST_ENDPOINT)
+        ->and($job->apiKey)->toBe(JOB_TEST_API_KEY)
+        ->and($job->payload)->toBe(JOB_TEST_PAYLOAD)
+        ->and($job->timeout)->toBe(JOB_TEST_TIMEOUT);
 });
 
 it('has correct retry configuration', function () {
@@ -55,8 +56,7 @@ it('is serializable for queue transport', function () {
 });
 
 it('calls failed method without throwing', function () {
-    // Create a testable job subclass that captures errors instead of using error_log
-    $job = new class('https://us.i.posthog.com/i/v1/logs', 'test_key', ['resourceLogs' => []]) extends SendPosthogLogsJob
+    $job = new class(JOB_TEST_ENDPOINT, JOB_TEST_API_KEY, JOB_TEST_PAYLOAD) extends SendPosthogLogsJob
     {
         public ?string $lastError = null;
 
@@ -77,15 +77,11 @@ it('stores all configuration for queue transport', function () {
         'endpoint' => 'https://custom.posthog.com/i/v1/logs',
         'apiKey' => 'custom_api_key',
         'payload' => ['test' => 'data'],
-        'httpTimeout' => 10,
-        'httpConnectTimeout' => 5,
-        'verifySsl' => false,
+        'timeout' => 10,
     ]);
 
     expect($job->endpoint)->toBe('https://custom.posthog.com/i/v1/logs')
         ->and($job->apiKey)->toBe('custom_api_key')
         ->and($job->payload)->toBe(['test' => 'data'])
-        ->and($job->httpTimeout)->toBe(10)
-        ->and($job->httpConnectTimeout)->toBe(5)
-        ->and($job->verifySsl)->toBeFalse();
+        ->and($job->timeout)->toBe(10);
 });
