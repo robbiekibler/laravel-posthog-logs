@@ -2,6 +2,28 @@
 
 All notable changes to `laravel-posthog-logs` will be documented in this file.
 
+## v1.0.0 - 2026-02-03
+
+### Initial Stable Release
+
+Send your Laravel application logs to PostHog using the OpenTelemetry OTLP format.
+
+#### Features
+
+- Monolog handler for PostHog logs ingestion
+- Automatic batching with configurable batch size
+- Log level mapping to OpenTelemetry severity
+- Trace correlation support (trace_id, span_id)
+- Custom resource attributes
+- Configurable HTTP timeouts and SSL verification
+- Retry with exponential backoff for transient failures
+
+### Installation
+
+```bash
+composer require robbiekibler/laravel-posthog-logs
+
+```
 ## v1.1.0 - 2026-02-03
 
 ### What's New
@@ -22,11 +44,13 @@ All notable changes to `laravel-posthog-logs` will be documented in this file.
 ```bash
 composer require robbiekibler/laravel-posthog-logs
 
+
 ```
 ### Testing Your Setup
 
 ```bash
 php artisan posthog:test
+
 
 ```
 ## 1.1.0 - 2025-02-02
