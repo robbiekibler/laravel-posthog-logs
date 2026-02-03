@@ -1,69 +1,179 @@
-# :package_description
+# Laravel PostHog Logs
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/:vendor_slug/:package_slug/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/:vendor_slug/:package_slug/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/:vendor_slug/:package_slug/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/:vendor_slug/:package_slug.svg?style=flat-square)](https://packagist.org/packages/:vendor_slug/:package_slug)
-<!--delete-->
----
-This repo can be used to scaffold a Laravel package. Follow these steps to get started:
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/robbiekibler/laravel-posthog-logs.svg?style=flat-square)](https://packagist.org/packages/robbiekibler/laravel-posthog-logs)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/robbiekibler/laravel-posthog-logs/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/robbiekibler/laravel-posthog-logs/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/robbiekibler/laravel-posthog-logs.svg?style=flat-square)](https://packagist.org/packages/robbiekibler/laravel-posthog-logs)
 
-1. Press the "Use this template" button at the top of this repo to create a new repo with the contents of this skeleton.
-2. Run "php ./configure.php" to run a script that will replace all placeholders throughout all the files.
-3. Have fun creating your package.
-4. If you need help creating a package, consider picking up our <a href="https://laravelpackage.training">Laravel Package Training</a> video course.
----
-<!--/delete-->
-This is where your description should go. Limit it to a paragraph or two. Consider adding a small example.
-
-## Support us
-
-[<img src="https://github-ads.s3.eu-central-1.amazonaws.com/:package_name.jpg?t=1" width="419px" />](https://spatie.be/github-ad-click/:package_name)
-
-We invest a lot of resources into creating [best in class open source packages](https://spatie.be/open-source). You can support us by [buying one of our paid products](https://spatie.be/open-source/support-us).
-
-We highly appreciate you sending us a postcard from your hometown, mentioning which of our package(s) you are using. You'll find our address on [our contact page](https://spatie.be/about-us). We publish all received postcards on [our virtual postcard wall](https://spatie.be/open-source/postcards).
+Send your Laravel application logs to [PostHog](https://posthog.com/docs/logs) using the OpenTelemetry OTLP format. Just add the package, configure your environment variables, and your logs are automatically available in PostHog.
 
 ## Installation
 
-You can install the package via composer:
+Install the package via Composer:
 
 ```bash
-composer require :vendor_slug/:package_slug
+composer require robbiekibler/laravel-posthog-logs
 ```
 
-You can publish and run the migrations with:
+## Configuration
 
-```bash
-php artisan vendor:publish --tag=":package_slug-migrations"
-php artisan migrate
+### Quick Start
+
+Add these environment variables to your `.env` file:
+
+```env
+POSTHOG_API_KEY=phc_your_project_api_key
+POSTHOG_HOST=us.i.posthog.com
 ```
 
-You can publish the config file with:
+> **Security Note:** Use a **project API key** (starts with `phc_`), not a personal API key. Project API keys have limited scope and are safe for server-side usage.
 
-```bash
-php artisan vendor:publish --tag=":package_slug-config"
-```
-
-This is the contents of the published config file:
+Then add the `posthog` channel to your `config/logging.php`:
 
 ```php
-return [
-];
+'channels' => [
+    // ... other channels
+
+    'posthog' => [
+        'driver' => 'posthog',
+    ],
+],
 ```
 
-Optionally, you can publish the views using
+To use PostHog as your default log channel, or as part of a stack:
+
+```php
+// Use PostHog as default
+'default' => env('LOG_CHANNEL', 'posthog'),
+
+// Or add to a stack
+'stack' => [
+    'driver' => 'stack',
+    'channels' => ['single', 'posthog'],
+],
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSTHOG_API_KEY` | Your PostHog project API key | (required) |
+| `POSTHOG_HOST` | PostHog host (`us.i.posthog.com`, `eu.i.posthog.com`, or self-hosted) | `us.i.posthog.com` |
+| `POSTHOG_SERVICE_NAME` | Service name for log identification | `APP_NAME` |
+| `POSTHOG_ENVIRONMENT` | Deployment environment | `APP_ENV` |
+| `POSTHOG_LOG_LEVEL` | Minimum log level to send | `debug` |
+| `POSTHOG_LOGS_ENABLED` | Enable/disable sending logs | `true` |
+| `POSTHOG_BATCH_ENABLED` | Enable batching of logs | `true` |
+| `POSTHOG_BATCH_MAX_SIZE` | Maximum logs per batch | `100` |
+
+### Publishing Config (Optional)
+
+To customize all options, publish the config file:
 
 ```bash
-php artisan vendor:publish --tag=":package_slug-views"
+php artisan vendor:publish --tag="posthog-logs-config"
 ```
 
 ## Usage
 
+Once configured, use Laravel's standard logging:
+
 ```php
-$variable = new VendorName\Skeleton();
-echo $variable->echoPhrase('Hello, VendorName!');
+use Illuminate\Support\Facades\Log;
+
+// Basic logging
+Log::info('User logged in');
+Log::warning('Rate limit approaching');
+Log::error('Payment failed', ['order_id' => 123]);
+
+// With context
+Log::channel('posthog')->info('Order created', [
+    'order_id' => $order->id,
+    'customer_id' => $customer->id,
+    'total' => $order->total,
+]);
 ```
+
+### Trace Correlation
+
+If you're using distributed tracing, you can include trace context:
+
+```php
+Log::info('Processing request', [
+    'trace_id' => $traceId,
+    'span_id' => $spanId,
+    'user_id' => $userId,
+]);
+```
+
+### Log Levels
+
+The package maps Laravel/Monolog log levels to OpenTelemetry severity:
+
+| Laravel Level | OTLP Severity |
+|---------------|---------------|
+| debug | DEBUG (5) |
+| info | INFO (9) |
+| notice | INFO (10) |
+| warning | WARN (13) |
+| error | ERROR (17) |
+| critical | ERROR (18) |
+| alert | FATAL (21) |
+| emergency | FATAL (22) |
+
+## Viewing Logs in PostHog
+
+1. Go to your PostHog dashboard
+2. Navigate to **Logs** in the sidebar
+3. Filter by service name, environment, or log level
+4. Click on individual logs to see full context and attributes
+
+## Advanced Configuration
+
+### Channel-Level Overrides
+
+Override settings per channel in `config/logging.php`:
+
+```php
+'posthog' => [
+    'driver' => 'posthog',
+    'level' => 'warning',  // Only send warnings and above
+    'service_name' => 'my-api',
+    'environment' => 'staging',
+],
+```
+
+### Custom Resource Attributes
+
+Add custom attributes to all logs via config:
+
+```php
+// config/posthog-logs.php
+'resource_attributes' => [
+    'team.name' => 'backend',
+    'version' => '1.2.3',
+],
+```
+
+### Disable in Tests
+
+```env
+# .env.testing
+POSTHOG_LOGS_ENABLED=false
+```
+
+### Performance Considerations
+
+Logs are sent to PostHog via synchronous HTTP requests. The package includes:
+
+- **Batching**: Logs are batched (default: 100 per batch) to reduce HTTP overhead
+- **Timeouts**: Short timeouts (5s request, 2s connect) to prevent blocking
+- **Retries**: Automatic retry with exponential backoff for transient failures
+- **Overflow Protection**: Oldest logs are dropped if the batch overflows due to send failures
+
+For high-throughput applications, consider:
+- Using a log stack with a fast local channel (e.g., `single`) as primary
+- Adjusting batch size via `POSTHOG_BATCH_MAX_SIZE`
+- Setting a higher minimum log level in production via `POSTHOG_LOG_LEVEL`
 
 ## Testing
 
@@ -73,7 +183,7 @@ composer test
 
 ## Changelog
 
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
+Please see [CHANGELOG](CHANGELOG.md) for recent changes.
 
 ## Contributing
 
@@ -85,7 +195,7 @@ Please review [our security policy](../../security/policy) on how to report secu
 
 ## Credits
 
-- [:author_name](https://github.com/:author_username)
+- [Robbie Kibler](https://github.com/robbiekibler)
 - [All Contributors](../../contributors)
 
 ## License
