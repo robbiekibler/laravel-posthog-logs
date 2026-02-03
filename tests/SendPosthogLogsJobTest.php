@@ -1,11 +1,5 @@
 <?php
 
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\RequestException;
-use GuzzleHttp\Handler\MockHandler;
-use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Psr7\Request;
-use GuzzleHttp\Psr7\Response;
 use RobbieKibler\PosthogLogs\Jobs\SendPosthogLogsJob;
 
 function createTestJob(array $options = []): SendPosthogLogsJob
@@ -62,11 +56,8 @@ it('is serializable for queue transport', function () {
 
 it('calls failed method without throwing', function () {
     // Create a testable job subclass that captures errors instead of using error_log
-    $job = new class(
-        'https://us.i.posthog.com/i/v1/logs',
-        'test_key',
-        ['resourceLogs' => []]
-    ) extends SendPosthogLogsJob {
+    $job = new class('https://us.i.posthog.com/i/v1/logs', 'test_key', ['resourceLogs' => []]) extends SendPosthogLogsJob
+    {
         public ?string $lastError = null;
 
         public function failed(\Throwable $e): void

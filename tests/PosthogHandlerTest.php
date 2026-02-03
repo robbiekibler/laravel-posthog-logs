@@ -279,24 +279,8 @@ it('sends sync without retries', function () {
 });
 
 it('falls back to sync when queue dispatch fails', function () {
-    $handler = new class(
-        'test_key',
-        'us.i.posthog.com',
-        'laravel',
-        'production',
-        Level::Debug,
-        false,
-        100,
-        [],
-        2,
-        1,
-        true,
-        true,
-        true,
-        true,
-        'redis',
-        'logs'
-    ) extends PosthogHandler {
+    $handler = new class('test_key', 'us.i.posthog.com', 'laravel', 'production', Level::Debug, false, 100, [], 2, 1, true, true, true, true, 'redis', 'logs') extends PosthogHandler
+    {
         public bool $syncCalled = false;
 
         public array $errors = [];
