@@ -2,6 +2,12 @@
 
 All notable changes to `laravel-posthog-logs` will be documented in this file.
 
+## v1.3.0 - 2026-03-23
+
+### What's New
+
+- Added Laravel 13 support
+
 ## v1.2.0 - 2026-02-03
 
 ### What's New
