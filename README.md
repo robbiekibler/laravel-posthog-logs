@@ -164,7 +164,7 @@ Add custom attributes to all logs via config:
 // config/posthog-logs.php
 'resource_attributes' => [
     'team.name' => 'backend',
-    'version' => '1.2.3',
+    'version' => '1.3.0',
 ],
 ```
 
